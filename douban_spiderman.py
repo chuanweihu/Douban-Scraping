@@ -4,7 +4,6 @@ import urllib
 from fake_useragent import UserAgent
 
 import requests
-from requests_threads import AsyncSession
 from requests_html import HTMLSession
 
 from selenium import webdriver
@@ -21,24 +20,11 @@ from lxml import etree
 import numpy as np
 import pandas as pd
 
-import threading
-import queue as Queue
+from requests_toolbelt import threaded
+from requests_toolbelt import user_agent
 
 DEFAULT_URL = "https://movie.douban.com/tag/#/?sort=U&range=0,10&tags=电影"
-DEFAULT_PAGE = 20
-
-class MyThread(threading.Thread):
-    def __init__(self, name, q):
-        threading.Thread.__init__(self)
-        self.name = name
-        self.q = q
-    def run(self, url):
-        while True:
-            try:
-                crawler = DoubanSpiderMan():
-                crawler.crawl_page(self.name, self.q, url)
-            except:
-                break
+DEFAULT_PAGE = 2000
 
 class DoubanSpiderMan(object):
     """docstring for Crawler
@@ -109,12 +95,12 @@ class DoubanSpiderMan(object):
         """
         chrome_options = Options()
 
-        #chrome_options.add_argument('--user-agent={}'.format(
-        #                            self.get_headers()['user-agent'])
-        #)
+        chrome_options.add_argument('--user-agent={}'.format(
+                                    self.get_headers()['user-agent'])
+        )
         chrome_options.add_argument('--disable-gpu')
         #chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--blink-settings=imagesEnabled=false')
+        #chrome_options.add_argument('--blink-settings=imagesEnabled=false')
         chrome_options.add_argument('--window-size=800,900')
         chrome_options.add_experimental_option('excludeSwitches',
                                                ['enable-automation'])
@@ -146,21 +132,22 @@ class DoubanSpiderMan(object):
         driver.get(start_url)
 
         time.sleep(np.random.randint(10, 15)+np.random.random())
+        time.sleep(60)
 
         for count in range(DEFAULT_PAGE // 20 - 1):
             load_more_locator = 'a.more'
             try:
-                print('start click')
+                print(f'count {count}: start click\n', '='*20)
                 continue_element = self.wait_for_element_located(driver,
                                 load_more_locator)
                 continue_element.click()
-                print('after click')
+                print(f'count {count}: after click', '='*20)
             except:
                 print('No more elements to show!')
                 break
             finally:
                 print('sleeping')
-                time.sleep(np.random.randint(10, 15)+np.random.random())
+                time.sleep(np.random.randint(5, 10)+np.random.random())
 
         html = driver.page_source
         root = etree.HTML(html)
@@ -261,10 +248,54 @@ class DoubanSpiderMan(object):
 
         return page_results
 
+    def initialize_session(self, session):
+        session.headers['User-Agent'] = self.get_headers()['user-agent']
+
+    def async_crawl_pages(self, urls):
+        """
+        async parsing htmls
+        """
+        urls_to_get = []
+
+        for url in urls:
+            urls_to_get.append({'url': url,
+                                'method': 'GET',
+                                'headers': self.get_headers(),
+                                'timeout': self.timeout})
+
+        responses, errors = threaded.map(urls_to_get,
+                                        num_processes=3)
+
+        page_lists = []
+
+        for response in responses:
+
+            print(f'response is {response}')
+            print('GET {0}. Returned {1}.'.format(response.request_kwargs['url'],
+                                                  response.status_code))
+
+            root = etree.HTML(response.text)
+
+            print(f'type(root) is {type(root)}')
+
+            r_results = {'id': re.findall(r'.*?subject/(\d+)',
+                                          response.request_kwargs['url'])[0]}
+
+            for locator in self.locators:
+                r_results[locator] = root.xpath(self.locators[locator])
+
+            page_lists.append(r_results)
+
+        df_pages = pd.DataFrame(page_lists, columns=self.columns)
+        df_pages.info()
+
+        return df_pages
+
     def crawl_pages(self, urls):
         """
         Parsing htmls
         """
+
         page_lists = []
         for idx, url in enumerate(urls):
             print(f'{idx} url: \n\t{url}\n\t', '-'*20)
@@ -275,15 +306,17 @@ class DoubanSpiderMan(object):
 
         return df_pages
 
-    def crawl(self, url=DEFAULT_URL):
+    def crawl(self, url=DEFAULT_URL, async_crawl=False):
         """
         Crawling
         """
         movie_chains = self.selenium_parser_urls(url)
-
-        return self.crawl_pages(movie_chains)
+        if not async_crawl:
+            return self.crawl_pages(movie_chains)
+        else:
+            return self.async_crawl_pages(movie_chains)
 
 if __name__ == "__main__":
     douban_crawler = DoubanSpiderMan()
-    df = douban_crawler.crawl()
+    df = douban_crawler.crawl(async_crawl=True)
     df.to_csv('douban_crawler.csv', index=False)
