@@ -4,7 +4,9 @@ import urllib
 from fake_useragent import UserAgent
 
 import requests
+from requests_threads import AsyncSession
 from requests_html import HTMLSession
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -19,8 +21,24 @@ from lxml import etree
 import numpy as np
 import pandas as pd
 
+import threading
+import queue as Queue
+
 DEFAULT_URL = "https://movie.douban.com/tag/#/?sort=U&range=0,10&tags=电影"
 DEFAULT_PAGE = 20
+
+class MyThread(threading.Thread):
+    def __init__(self, name, q):
+        threading.Thread.__init__(self)
+        self.name = name
+        self.q = q
+    def run(self, url):
+        while True:
+            try:
+                crawler = DoubanSpiderMan():
+                crawler.crawl_page(self.name, self.q, url)
+            except:
+                break
 
 class DoubanSpiderMan(object):
     """docstring for Crawler
@@ -121,13 +139,13 @@ class DoubanSpiderMan(object):
         Use selenium to parser
         """
         driver = webdriver.Chrome(options=self.set_chrome_options())
-        driver.implicitly_wait(15)
+        driver.implicitly_wait(10)
         start_url = url
         print('link is %s' %start_url)
         print('='*20)
         driver.get(start_url)
 
-        time.sleep(np.random.randint(15, 20)+np.random.random())
+        time.sleep(np.random.randint(10, 15)+np.random.random())
 
         for count in range(DEFAULT_PAGE // 20 - 1):
             load_more_locator = 'a.more'
@@ -141,8 +159,8 @@ class DoubanSpiderMan(object):
                 print('No more elements to show!')
                 break
             finally:
-                print('sleep')
-                time.sleep(np.random.randint(15, 20)+np.random.random())
+                print('sleeping')
+                time.sleep(np.random.randint(10, 15)+np.random.random())
 
         html = driver.page_source
         root = etree.HTML(html)
@@ -151,7 +169,7 @@ class DoubanSpiderMan(object):
 
         driver.close()
 
-        print("length of movie_chains: {}".format(len(movie_chains)))
+        print(f"length of movie_chains: {len(movie_chains)}", '\n\t', '-'*20)
 
         return movie_chains
 
@@ -162,14 +180,17 @@ class DoubanSpiderMan(object):
         chrome_options = self.set_chrome_options()
         chrome_options.add_argument('--headless')
         driver = webdriver.Chrome(options=chrome_options)
-        driver.implicitly_wait(5)
         driver.get(url)
+
         time.sleep(np.random.randint(1, 5))
         try:
             html = driver.page_source
         except:
             print('exceptions!\n', 'scrapying by requests instead!')
-            return self.requests_parser_page(url)
+            try:
+                return self.requests_html_parser_page(url)
+            except:
+                return self.requests_parser_page(url)
         else:
             root = etree.HTML(html)
 
@@ -186,6 +207,9 @@ class DoubanSpiderMan(object):
         Use requests to parser
         """
         r = requests.get(url, headers=self.get_headers())
+
+        time.sleep(np.random.randint(1, 5)+np.random.random())
+
         root = etree.HTML(r.text)
 
         r_results = {'id': re.findall(r'.*?subject/(\d+)', url)[0]}
@@ -213,7 +237,7 @@ class DoubanSpiderMan(object):
 
         return rh_results
 
-    def crawl_page(self, url, page_state=False, interactive=True):
+    def crawl_page(self, url, page_state=True, interactive=False):
         """
         Parsing html
 
@@ -226,14 +250,14 @@ class DoubanSpiderMan(object):
         if url is None:
             return None
         elif page_state:
+            print('page crawl is requests_parser_page\n\t', '-'*20)
             page_results = self.requests_parser_page(url)
         elif not interactive:
+            print('page crawl is requests_html_parser_page\n\t', '-'*20)
             page_results = self.requests_html_parser_page(url)
         else:
+            print('page crawl is selenium_parser_page\n\t', '-'*20)
             page_results = self.selenium_parser_page(url)
-
-        for page in page_results:
-            print(f'page is {page}')
 
         return page_results
 
@@ -243,6 +267,7 @@ class DoubanSpiderMan(object):
         """
         page_lists = []
         for idx, url in enumerate(urls):
+            print(f'{idx} url: \n\t{url}\n\t', '-'*20)
             page_lists.append(self.crawl_page(url))
 
         df_pages = pd.DataFrame(page_lists, columns=self.columns)
