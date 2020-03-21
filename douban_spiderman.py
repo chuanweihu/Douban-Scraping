@@ -76,6 +76,12 @@ class DoubanSpiderMan(object):
         }
         self.timeout = 20
         self.columns = ['id'] + [val for val in self.locators]
+        # Add proies by ShawdowSocks (Scraying Out of Great Wall)
+        self.proxies = {'http': 'http://127.0.0.1:1087',
+                        'https': 'http://127.0.0.1:1087'}
+        # Add proies by Trojan
+        #self.proxies = {'http': 'http://127.0.0.1:1081',
+        #                'https': 'http://127.0.0.1:1081'}
 
     def get_headers(self):
         """
@@ -87,13 +93,16 @@ class DoubanSpiderMan(object):
 
         return headers
 
-    def set_chrome_options(self):
+    def set_chrome_options(self, proxies=False):
         """
         Chrome webdriver sets
 
         :chrome_options: add arguments
         """
         chrome_options = Options()
+        # Add proies
+        if proxies:
+            options.add_argument('--proxy-server={}'.format(self.proxies['http']))
 
         chrome_options.add_argument('--user-agent={}'.format(
                                     self.get_headers()['user-agent'])
@@ -124,12 +133,15 @@ class DoubanSpiderMan(object):
         """
         Use selenium to parser
         """
-        driver = webdriver.Chrome(options=self.set_chrome_options())
+        driver = webdriver.Chrome(options=self.set_chrome_options(proxies=False))
         driver.implicitly_wait(10)
         start_url = url
         print('link is %s' %start_url)
         print('='*20)
-        driver.get(start_url)
+        if proxies:
+            driver.get(start_url, proxies=proxies)
+        else:
+            driver.get(start_url)
 
         time.sleep(np.random.randint(10, 15)+np.random.random())
         time.sleep(60)
@@ -164,7 +176,7 @@ class DoubanSpiderMan(object):
         """
         Use selenium to parser
         """
-        chrome_options = self.set_chrome_options()
+        chrome_options = self.set_chrome_options(proxies=False)
         chrome_options.add_argument('--headless')
         driver = webdriver.Chrome(options=chrome_options)
         driver.get(url)
